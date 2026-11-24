@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Burnmail</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: top bar, a big address card, then a two-pane inbox (list left, reader right) that becomes one pane at a time on phones. */
+:root {
+  --bg: #f1f5f3;
+  --surface: #ffffff;
+  --ink: #14201e;
+  --muted: #5a6b68;
+  --line: #d8e2de;
+  --accent: #0b6e5c;
+  --accent-ink: #ffffff;
+  --soft: #e3efeb;
+  --good: #1a8f5c;
+  --warn: #b45309;
+  --bad: #b3261e;
+  --display: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1614;
+    --surface: #16221f;
+    --ink: #e8f0ed;
+    --muted: #95a8a3;
+    --line: #2a3b37;
+    --accent: #4fd1b0;
+    --accent-ink: #06241d;
+    --soft: #1d2e2a;
+    --good: #5fd9a0;
+    --warn: #f0b35a;
+    --bad: #ff9b8a;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.5;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(32px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.shell { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.shell > * { min-width: 0; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { font-family: var(--display); font-weight: 700; font-size: 1.5rem; letter-spacing: -0.02em; }
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); flex: none; }
+.status[data-state="live"] .dot { background: var(--good); }
+.status[data-state="error"] .dot { background: var(--bad); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.hero { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.addr {
+  margin: 0; font-family: var(--mono); font-weight: 500;
+  font-size: clamp(1.15rem, 5vw, 2rem); line-height: 1.3;
+  overflow-wrap: anywhere; user-select: all;
+}
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn {
+  font: inherit; font-weight: 600; font-size: 15px;
+  min-height: 46px; padding: 0 18px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:hover { filter: brightness(1.06); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus-visible, .row:focus-visible, .back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { margin: 0; font-size: 14px; color: var(--muted); max-width: 62ch; }
+
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: 12px; border: 1px solid var(--bad); color: var(--bad); background: var(--surface); font-size: 14px;
+}
+.banner .btn { min-height: 38px; font-size: 14px; }
+
+.inbox { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 460px; overflow: hidden; }
+.list-pane { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+.pane-head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+.pane-head h2 { margin: 0; font-family: var(--display); font-weight: 500; font-size: 1.1rem; }
+.count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+ul.list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 560px; }
+.row {
+  width: 100%; text-align: left; font: inherit; color: inherit; background: transparent;
+  border: 0; border-bottom: 1px solid var(--line); padding: 14px 18px; cursor: pointer;
+  display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; align-items: start;
+}
+.row:hover { background: var(--soft); }
+.row[aria-current="true"] { background: var(--soft); }
+.avatar {
+  width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-weight: 600; font-size: 15px; text-transform: uppercase;
+}
+.row-top { display: flex; justify-content: space-between; gap: 8px; }
+.row-from { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.row-subj { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-intro { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.unread .row-from, .row.unread .row-subj { font-weight: 700; }
+.empty { padding: 36px 20px; text-align: center; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pulse { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { transform: scale(0.8); opacity: 0.6; } 50% { transform: scale(1.15); opacity: 1; } }
+}
+
+.read-pane { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.back { display: none; align-self: flex-start; font: inherit; font-weight: 600; background: none; border: 0; color: var(--accent); padding: 6px 0; cursor: pointer; }
+.read-empty { margin: auto; color: var(--muted); font-size: 15px; text-align: center; }
+.msg-subject { margin: 0; font-family: var(--display); font-weight: 500; font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere; }
+.msg-meta { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.msg-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.msg-actions .btn { min-height: 38px; font-size: 14px; padding: 0 14px; }
+.frame { width: 100%; height: 56vh; min-height: 320px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.plain { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--body); font-size: 15px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+
+.foot { margin: 0; font-size: 13px; color: var(--muted); max-width: 72ch; }
+
+@media (max-width: 820px) {
+  .inbox { grid-template-columns: 1fr; }
+  .list-pane { border-right: 0; }
+  .inbox[data-view="list"] .read-pane { display: none; }
+  .inbox[data-view="read"] .list-pane { display: none; }
+  .back { display: inline-block; }
+  .hero { padding: 18px; }
+  .read-pane { padding: 14px 16px; }
+  ul.list { max-height: none; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">Burnmail</div>
+    <div class="status" id="status" data-state="busy"><span class="dot"></span><span id="statusText">Setting up</span></div>
+  </header>
+
+  <section class="card hero" aria-labelledby="eyebrow">
+    <p class="eyebrow" id="eyebrow">Your temporary email address</p>
+    <p class="addr" id="addr">Getting your address...</p>
+    <div class="actions">
+      <button class="btn primary" id="copy" type="button" disabled>Copy address</button>
+      <button class="btn" id="refresh" type="button" disabled>Check mail now</button>
+      <button class="btn" id="fresh" type="button" disabled>New address</button>
+    </div>
+    <p class="hint">Use this address to sign up anywhere. New emails show up below on their own, usually within a few seconds. This page checks every 8 seconds.</p>
+  </section>
+
+  <div class="banner" id="banner" role="alert" hidden>
+    <span id="bannerText"></span>
+    <button class="btn" id="retry" type="button">Try again</button>
+  </div>
+
+  <section class="card inbox" id="inbox" data-view="list" aria-label="Inbox">
+    <div class="list-pane">
+      <div class="pane-head"><h2>Inbox</h2><span class="count" id="count">0 emails</span></div>
+      <ul class="list" id="list"></ul>
+      <div class="empty" id="empty">
+        <span class="pulse"></span>
+        <strong>Waiting for your first email</strong>
+        <span>Go sign up somewhere with your new address. The email will appear here.</span>
+      </div>
+    </div>
+    <div class="read-pane" id="read">
+      <button class="back" id="back" type="button">&larr; Back to inbox</button>
+      <div class="read-empty" id="readEmpty">Pick an email on the left to read it.</div>
+      <div id="msg" hidden>
+        <h3 class="msg-subject" id="msgSubject"></h3>
+        <div class="msg-meta" id="msgFrom"></div>
+        <div class="msg-meta" id="msgDate"></div>
+        <div class="msg-actions" style="margin: 12px 0">
+          <button class="btn" id="imgs" type="button" hidden>Load images</button>
+          <button class="btn" id="del" type="button">Delete email</button>
+        </div>
+        <div id="msgBody"></div>
+        <p class="note" id="msgNote" hidden>Images are blocked so senders cannot see when you open the email.</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">Burnmail inboxes are public in the sense that anyone who guesses the address could read its mail, so never use one for banking, work or anything you need to keep. Mail is handled by the free mail.tm service, so your address ends in a mail.tm domain, not gmail.com.</p>
+</div>
+
+<script>
+(function () {
+  var API = "https://api.mail.tm";
+  var STORE = "burnmail.session.v1";
+  var $ = function (id) { return document.getElementById(id); };
+  var session = null, messages = [], selectedId = null, busy = false, reauth = false, timer = null;
+  var current = null, showImages = false, confirmNew = null;
+
+  /* ---------- helpers ---------- */
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { "Accept": "application/json" };
+    if (opts.body) headers["Content-Type"] = "application/json";
+    var token = opts.token || (session && session.token);
+    if (token && !opts.noAuth) headers["Authorization"] = "Bearer " + token;
+    return fetch(API + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      if (r.status === 204) return null;
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (!r.ok) {
+          var e = new Error((d && (d.detail || d.message)) || ("Request failed (" + r.status + ")"));
+          e.status = r.status;
+          throw e;
+        }
+        return d;
+      });
+    });
+  }
+  function rint(n) {
+    try { var a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+    catch (e) { return Math.floor(Math.random() * n); }
+  }
+  function pick(list) { return list[rint(list.length)]; }
+  function nameGen() {
+    var adj = ["swift", "calm", "brave", "sunny", "quiet", "lucky", "mellow", "bright", "clever", "gentle"];
+    var noun = ["otter", "falcon", "panda", "maple", "river", "comet", "tiger", "lotus", "breeze", "pebble"];
+    return pick(adj) + pick(noun) + (1000 + rint(9000));
+  }
+  function passGen() {
+    var c = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789", s = "";
+    for (var i = 0; i < 18; i++) s += c.charAt(rint(c.length));
+    return s;
+  }
+  function when(iso) {
+    var d = new Date(iso), diff = (Date.now() - d.getTime()) / 1000;
+    if (isNaN(diff)) return "";
+    if (diff < 45) return "just now";
+    if (diff < 3600) return Math.max(1, Math.round(diff / 60)) + " min ago";
+    if (diff < 86400) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleDateString([], { day: "numeric", month: "short" });
+  }
+  function fullDate(iso) {
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? "" : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  }
+  function setStatus(state, text) {
+    $("status").setAttribute("data-state", state);
+    $("statusText").textContent = text;
+  }
+  function showError(e) {
+    var text = (e && e.message) || "Something went wrong.";
+    if (e && e.name === "TypeError") text = "Could not reach the mail service. Check your internet connection.";
+    if (e && e.status === 429) text = "The mail service is busy. Wait a moment and try again.";
+    $("bannerText").textContent = text;
+    $("banner").hidden = false;
+    setStatus("error", "Offline");
+  }
+  function hideError() { $("banner").hidden = true; }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(session)); } catch (e) {} }
+  function readSaved() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE) || "null");
+      if (s && s.address && s.password) return s;
+    } catch (e) {}
+    return null;
+  }
+  function setButtons(on) {
+    $("copy").disabled = !on; $("refresh").disabled = !on; $("fresh").disabled = !on;
+  }
+
+  /* ---------- account ---------- */
+  function createSession(tries) {
+    return api("/domains?page=1", { noAuth: true }).then(function (d) {
+      var list = (d && d["hydra:member"]) || [], dom = null;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].isActive !== false) { dom = list[i].domain; break; }
+      }
+      if (!dom) throw new Error("No mail domain is available right now. Try again soon.");
+      var address = nameGen() + "@" + dom, pass = passGen();
+      return api("/accounts", { method: "POST", body: { address: address, password: pass }, noAuth: true }).then(function (acc) {
+        return api("/token", { method: "POST", body: { address: address, password: pass }, noAuth: true }).then(function (t) {
+          return { address: address, password: pass, id: acc && acc.id, token: t && t.token };
+        });
+      });
+    }).catch(function (e) {
+      if (e.status === 422 && tries > 0) return createSession(tries - 1);
+      throw e;
+    });
+  }
+  function relogin() {
+    return api("/token", { method: "POST", body: { address: session.address, password: session.password }, noAuth: true }).then(function (t) {
+      session.token = t.token;
+      save();
+    });
+  }
+  function newSession() {
+    return createSession(3).then(function (s) {
+      session = s;
+      save();
+      messages = [];
+      selectedId = null;
+      closeMessage();
+      renderList();
+    });
+  }
+  function showAddress() {
+    $("addr").textContent = session.address;
+    setButtons(true);
+  }
+
+  /* ---------- inbox ---------- */
+  function poll() {
+    if (!session || busy) return;
+    busy = true;
+    api("/messages?page=1").then(function (d) {
+      busy = false; reauth = false;
+      messages = (d && d["hydra:member"]) || [];
+      renderList();
+      hideError();
+      setStatus("live", "Live");
+    }, function (e) {
+      busy = false;
+      if (e.status === 401 && !reauth) {
+        reauth = true;
+        relogin().then(poll, showError);
+      } else {
+        showError(e);
+      }
+    });
+  }
+  function renderList() {
+    var ul = $("list");
+    ul.textContent = "";
+    $("count").textContent = messages.length + (messages.length === 1 ? " email" : " emails");
+    $("empty").hidden = messages.length > 0;
+    messages.forEach(function (m) {
+      var li = document.createElement("li");
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "row" + (m.seen ? "" : " unread");
+      b.setAttribute("data-id", m.id);
+      if (m.id === selectedId) b.setAttribute("aria-current", "true");
+      var name = (m.from && (m.from.name || m.from.address)) || "Unknown sender";
+      var av = document.createElement("span");
+      av.className = "avatar";
+      av.textContent = name.charAt(0) || "?";
+      var body = document.createElement("span");
+      var top = document.createElement("span");
+      top.className = "row-top";
+      var f = document.createElement("span"); f.className = "row-from"; f.textContent = name;
+      var t = document.createElement("span"); t.className = "row-time"; t.textContent = when(m.createdAt);
+      top.appendChild(f); top.appendChild(t);
+      var s = document.createElement("div"); s.className = "row-subj"; s.textContent = m.subject || "(no subject)";
+      var i = document.createElement("div"); i.className = "row-intro"; i.textContent = m.intro || "";
+      body.appendChild(top); body.appendChild(s); body.appendChild(i);
+      b.appendChild(av); b.appendChild(body);
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+  }
+  function frameDoc(html, images) {
+    var csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:" + (images ? " https: http:" : "");
+    var css = "body{font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#111;background:#fff;margin:0;padding:12px;overflow-wrap:anywhere}img{max-width:100%;height:auto}a{color:#0b6e5c}";
+    return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + csp + '"><base target="_blank"><style>' + css + "</style>" + html;
+  }
+  function drawBody() {
+    var holder = $("msgBody");
+    holder.textContent = "";
+    var m = current;
+    if (!m) return;
+    var html = Array.isArray(m.html) ? m.html.join("") : (m.html || "");
+    if (html) {
+      var fr = document.createElement("iframe");
+      fr.className = "frame";
+      fr.setAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+      fr.setAttribute("title", "Email content");
+      fr.srcdoc = frameDoc(html, showImages);
+      holder.appendChild(fr);
+      $("imgs").hidden = showImages;
+      $("msgNote").hidden = showImages;
+    } else {
+      var p = document.createElement("pre");
+      p.className = "plain";
+      p.textContent = m.text || m.intro || "(This email has no content.)";
+      holder.appendChild(p);
+      $("imgs").hidden = true;
+      $("msgNote").hidden = true;
+    }
+  }
+  function openMessage(id) {
+    selectedId = id;
+    showImages = false;
+    $("inbox").setAttribute("data-view", "read");
+    $("readEmpty").hidden = true;
+    $("msg").hidden = false;
+    $("msgSubject").textContent = "Loading...";
+    $("msgFrom").textContent = "";
+    $("msgDate").textContent = "";
+    $("msgBody").textContent = "";
+    api("/messages/" + encodeURIComponent(id)).then(function (m) {
+      if (selectedId !== id) return;
+      current = m;
+      var from = m.from || {};
+      $("msgSubject").textContent = m.subject || "(no subject)";
+      $("msgFrom").textContent = "From: " + (from.name ? from.name + " <" + from.address + ">" : (from.address || "unknown"));
+      $("msgDate").textContent = fullDate(m.createdAt);
+      drawBody();
+      for (var i = 0; i < messages.length; i++) if (messages[i].id === id) messages[i].seen = true;
+      renderList();
+    }, function (e) { showError(e); });
+    renderList();
+  }
+  function closeMessage() {
+    current = null;
+    selectedId = null;
+    $("msg").hidden = true;
+    $("readEmpty").hidden = false;
+    $("inbox").setAttribute("data-view", "list");
+  }
+
+  /* ---------- copy ---------- */
+  function copyText(text, btn) {
+    var label = btn.textContent;
+    var done = function () {
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.textContent = label; }, 1400);
+    };
+    var fallback = function () {
+      var t = document.createElement("textarea");
+      t.value = text; t.setAttribute("readonly", "");
+      t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(t);
+      if (ok) done(); else btn.textContent = "Press and hold the address";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  }
+
+  /* ---------- start ---------- */
+  function start() {
+    hideError();
+    setStatus("busy", "Setting up");
+    var saved = readSaved();
+    var p;
+    if (saved) {
+      session = saved;
+      p = relogin().catch(function () { return newSession(); });
+    } else {
+      p = newSession();
+    }
+    p.then(function () {
+      showAddress();
+      poll();
+      if (timer) clearInterval(timer);
+      timer = setInterval(function () { if (!document.hidden) poll(); }, 8000);
+    }, showError);
+  }
+
+  $("copy").addEventListener("click", function () { if (session) copyText(session.address, $("copy")); });
+  $("refresh").addEventListener("click", function () { setStatus("busy", "Checking"); poll(); });
+  $("fresh").addEventListener("click", function () {
+    var btn = $("fresh");
+    if (!confirmNew) {
+      btn.textContent = "Tap again to confirm";
+      confirmNew = setTimeout(function () { confirmNew = null; btn.textContent = "New address"; }, 3500);
+      return;
+    }
+    clearTimeout(confirmNew); confirmNew = null;
+    btn.textContent = "New address";
+    setButtons(false);
+    $("addr").textContent = "Getting a new address...";
+    var old = session;
+    if (old && old.id && old.token) api("/accounts/" + encodeURIComponent(old.id), { method: "DELETE", token: old.token }).catch(function () {});
+    newSession().then(function () { showAddress(); poll(); }, function (e) { showError(e); });
+  });
+  $("list").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-id]");
+    if (b) openMessage(b.getAttribute("data-id"));
+  });
+  $("back").addEventListener("click", function () { $("inbox").setAttribute("data-view", "list"); });
+  $("imgs").addEventListener("click", function () { showImages = true; drawBody(); });
+  $("del").addEventListener("click", function () {
+    var id = selectedId;
+    if (!id) return;
+    api("/messages/" + encodeURIComponent(id), { method: "DELETE" }).then(function () {
+      messages = messages.filter(function (m) { return m.id !== id; });
+      closeMessage();
+      renderList();
+    }, showError);
+  });
+  $("retry").addEventListener("click", function () { if (session && session.token) { hideError(); poll(); } else start(); });
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && session) poll(); });
+
+  start();
+})();
+</script>
+</body>
+</html>
